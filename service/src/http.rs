@@ -58,8 +58,8 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
 #[derive(OpenApi)]
 #[openapi(
     info(
-        title = "n2yo-consumer",
-        description = "N2YO REST API consumer for satellite tracking data.",
+        title = "aumigo",
+        description = "Satellite tracking API with N2YO data and Open-Meteo observer elevation.",
         version = "0.1.0"
     ),
     paths(
@@ -112,13 +112,16 @@ pub async fn health(state: web::Data<AppState>) -> HttpResponse {
     HttpResponse::Ok().json(HealthResponse {
         status: "ok".to_owned(),
         version: state.service_version.clone(),
-        services: vec![ServiceHealth {
-            name: "n2yo".to_owned(),
-            status: "configured".to_owned(),
-        }, ServiceHealth {
-            name: "open-meteo".to_owned(),
-            status: "configured".to_owned(),
-        }],
+        services: vec![
+            ServiceHealth {
+                name: "n2yo".to_owned(),
+                status: "configured".to_owned(),
+            },
+            ServiceHealth {
+                name: "open-meteo".to_owned(),
+                status: "configured".to_owned(),
+            },
+        ],
     })
 }
 

@@ -1,13 +1,13 @@
 # n2yo-consumer
 
-Rust monorepo for the n2yo-consumer project. The repository currently contains a single stateless HTTP service built with Actix Web that consumes the N2YO REST API v1 and exposes documented satellite endpoints.
+Rust monorepo for the n2yo-consumer project. The repository currently contains a single stateless HTTP service built with Actix Web that consumes the N2YO REST API v1, resolves observer elevation through Open-Meteo, and exposes documented satellite endpoints.
 
 ## Current Stack
 
 - Rust edition 2024
 - Actix Web
 - Docker Compose
-- Reqwest with rustls for outbound N2YO calls
+- Reqwest with rustls for outbound N2YO and Open-Meteo calls
 - Utoipa for OpenAPI generation
 - `env_logger` and `log` for logging
 
@@ -23,6 +23,7 @@ Rust monorepo for the n2yo-consumer project. The repository currently contains a
 The API currently provides:
 
 - `GET /health`
+- `GET /observer/elevation/{latitude}/{longitude}`
 - `GET /satellite/tle/{id}`
 - `GET /satellite/positions/{id}/{observer_lat}/{observer_lng}/{observer_alt}/{seconds}`
 - `GET /satellite/visualpasses/{id}/{observer_lat}/{observer_lng}/{observer_alt}/{days}/{min_visibility}`
@@ -47,6 +48,8 @@ Main application variables:
 - `N2YO_API_KEY`: N2YO REST API key
 - `N2YO_BASE_URL`: N2YO satellite API base URL
 - `N2YO_TIMEOUT_SECONDS`: outbound request timeout in seconds
+- `OPEN_METEO_ELEVATION_URL`: Open-Meteo elevation API URL
+- `OPEN_METEO_TIMEOUT_SECONDS`: outbound Open-Meteo request timeout in seconds
 - `RUST_LOG`: log configuration
 
 Local development example:
@@ -56,6 +59,8 @@ API_BIND=0.0.0.0:8080
 N2YO_API_KEY=change-me-n2yo-api-key
 N2YO_BASE_URL=https://api.n2yo.com/rest/v1/satellite
 N2YO_TIMEOUT_SECONDS=10
+OPEN_METEO_ELEVATION_URL=https://api.open-meteo.com/v1/elevation
+OPEN_METEO_TIMEOUT_SECONDS=10
 RUST_LOG=info,actix_web=info
 ```
 
@@ -106,7 +111,7 @@ cargo build -p service --release
 cargo test -p service
 ```
 
-The test suite does not require external services and does not call N2YO.
+The test suite does not require external services and does not call N2YO or Open-Meteo.
 
 ### Compile Check
 
@@ -124,6 +129,7 @@ docker compose down
 ## Current Endpoints
 
 - `GET /health`: checks API process health without spending N2YO transactions
+- `GET /observer/elevation/{latitude}/{longitude}`: resolves observer altitude above sea level in meters through Open-Meteo
 - `GET /satellite/tle/{id}`: retrieves TLE data for a NORAD satellite id
 - `GET /satellite/positions/{id}/{observer_lat}/{observer_lng}/{observer_alt}/{seconds}`: retrieves future positions, limited to 300 seconds
 - `GET /satellite/visualpasses/{id}/{observer_lat}/{observer_lng}/{observer_alt}/{days}/{min_visibility}`: retrieves visual passes, limited to 10 prediction days
@@ -139,13 +145,19 @@ docker compose down
 - N2YO transaction limits still apply to this consumer service.
 - The `/health` endpoint does not call N2YO to avoid spending transactions.
 
+## Open-Meteo Notes
+
+- Observer elevation is fetched from `https://api.open-meteo.com/v1/elevation` by default.
+- `GET /observer/elevation/{latitude}/{longitude}` returns altitude in meters and can be used as `observer_alt` for N2YO satellite endpoints.
+- The `/health` endpoint does not call Open-Meteo.
+
 ## Docker
 
 The current `docker-compose.yml` defines:
 
 - `service`: build and runtime for the Rust API
 
-The [service/Dockerfile](/home/nathan3boss/projects/n2yo-consumer/service/Dockerfile) builds a release binary and runs the final artifact in a slim Debian image.
+The [service/Dockerfile](service/Dockerfile) builds a release binary and runs the final artifact in a slim Debian image.
 
 ## GitHub Actions
 
@@ -153,4 +165,4 @@ The workflow at `.github/workflows/actions.yml` runs formatting, clippy, tests, 
 
 ## Project Status
 
-The repository is currently focused on a stateless N2YO consumer API for n2yo-consumer.
+The repository is currently focused on a stateless satellite tracking API for aumigo.
