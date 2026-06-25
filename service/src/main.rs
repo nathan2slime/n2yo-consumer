@@ -3,6 +3,7 @@ use service::{
     config::env::AppConfig,
     http::{ApiDoc, AppState, configure},
     n2yo::N2yoClient,
+    open_meteo::OpenMeteoClient,
 };
 use utoipa::OpenApi;
 use utoipa_swagger_ui::SwaggerUi;
@@ -15,12 +16,14 @@ async fn main() -> std::io::Result<()> {
         std::io::Error::new(std::io::ErrorKind::InvalidInput, error.to_string())
     })?;
 
-    log::info!("starting n2yo-consumer service");
+    log::info!("starting aumigo service");
     log::info!(
-        "service config loaded (bind={}, n2yo_base_url={}, n2yo_timeout_seconds={})",
+        "service config loaded (bind={}, n2yo_base_url={}, n2yo_timeout_seconds={}, open_meteo_elevation_url={}, open_meteo_timeout_seconds={})",
         config.api_bind,
         config.n2yo_base_url,
-        config.n2yo_timeout_seconds
+        config.n2yo_timeout_seconds,
+        config.open_meteo_elevation_url,
+        config.open_meteo_timeout_seconds
     );
 
     let n2yo_client = N2yoClient::new(
@@ -29,7 +32,16 @@ async fn main() -> std::io::Result<()> {
         config.n2yo_timeout_seconds,
     )
     .map_err(std::io::Error::other)?;
-    let http_state = AppState::new(n2yo_client, env!("CARGO_PKG_VERSION").to_owned());
+    let open_meteo_client = OpenMeteoClient::new(
+        config.open_meteo_elevation_url.clone(),
+        config.open_meteo_timeout_seconds,
+    )
+    .map_err(std::io::Error::other)?;
+    let http_state = AppState::new(
+        n2yo_client,
+        open_meteo_client,
+        env!("CARGO_PKG_VERSION").to_owned(),
+    );
 
     let openapi = ApiDoc::openapi()
         .to_pretty_json()

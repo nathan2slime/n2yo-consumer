@@ -8,43 +8,51 @@ use crate::n2yo::{
     AboveResponse, N2yoClient, N2yoClientError, PositionsResponse, RadioPassesResponse,
     TleResponse, VisualPassesResponse,
 };
+use crate::open_meteo::{ElevationResponse, OpenMeteoClient, OpenMeteoClientError};
 
 #[derive(Clone)]
 pub struct AppState {
     pub n2yo: N2yoClient,
+    pub open_meteo: OpenMeteoClient,
     pub service_version: String,
 }
 
 impl AppState {
-    pub fn new(n2yo: N2yoClient, service_version: String) -> Self {
+    pub fn new(n2yo: N2yoClient, open_meteo: OpenMeteoClient, service_version: String) -> Self {
         Self {
             n2yo,
+            open_meteo,
             service_version,
         }
     }
 }
 
 pub fn configure(cfg: &mut web::ServiceConfig) {
-    cfg.route("/health", web::get().to(health)).service(
-        web::scope("/satellite")
-            .route("/tle/{id}", web::get().to(get_tle))
-            .route(
-                "/positions/{id}/{observer_lat}/{observer_lng}/{observer_alt}/{seconds}",
-                web::get().to(get_positions),
-            )
-            .route(
-                "/visualpasses/{id}/{observer_lat}/{observer_lng}/{observer_alt}/{days}/{min_visibility}",
-                web::get().to(get_visual_passes),
-            )
-            .route(
-                "/radiopasses/{id}/{observer_lat}/{observer_lng}/{observer_alt}/{days}/{min_elevation}",
-                web::get().to(get_radio_passes),
-            )
-            .route(
-                "/above/{observer_lat}/{observer_lng}/{observer_alt}/{search_radius}/{category_id}",
-                web::get().to(get_above),
-            ),
-    );
+    cfg.route("/health", web::get().to(health))
+        .service(
+            web::scope("/observer")
+                .route("/elevation/{latitude}/{longitude}", web::get().to(get_elevation)),
+        )
+        .service(
+            web::scope("/satellite")
+                .route("/tle/{id}", web::get().to(get_tle))
+                .route(
+                    "/positions/{id}/{observer_lat}/{observer_lng}/{observer_alt}/{seconds}",
+                    web::get().to(get_positions),
+                )
+                .route(
+                    "/visualpasses/{id}/{observer_lat}/{observer_lng}/{observer_alt}/{days}/{min_visibility}",
+                    web::get().to(get_visual_passes),
+                )
+                .route(
+                    "/radiopasses/{id}/{observer_lat}/{observer_lng}/{observer_alt}/{days}/{min_elevation}",
+                    web::get().to(get_radio_passes),
+                )
+                .route(
+                    "/above/{observer_lat}/{observer_lng}/{observer_alt}/{search_radius}/{category_id}",
+                    web::get().to(get_above),
+                ),
+        );
 }
 
 #[derive(OpenApi)]
@@ -56,6 +64,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     ),
     paths(
         health,
+        get_elevation,
         get_tle,
         get_positions,
         get_visual_passes,
@@ -67,6 +76,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
             HealthResponse,
             ServiceHealth,
             ErrorResponse,
+            ElevationResponse,
             TleResponse,
             crate::n2yo::TleInfo,
             PositionsResponse,
@@ -84,6 +94,7 @@ pub fn configure(cfg: &mut web::ServiceConfig) {
     ),
     tags(
         (name = "Infrastructure", description = "Operational endpoints for service status and diagnostics."),
+        (name = "Observer", description = "Endpoints that resolve observer location details."),
         (name = "Satellites", description = "Endpoints that proxy supported N2YO satellite APIs.")
     )
 )]
@@ -104,8 +115,44 @@ pub async fn health(state: web::Data<AppState>) -> HttpResponse {
         services: vec![ServiceHealth {
             name: "n2yo".to_owned(),
             status: "configured".to_owned(),
+        }, ServiceHealth {
+            name: "open-meteo".to_owned(),
+            status: "configured".to_owned(),
         }],
     })
+}
+
+#[utoipa::path(
+    get,
+    path = "/observer/elevation/{latitude}/{longitude}",
+    tag = "Observer",
+    operation_id = "getObserverElevation",
+    summary = "Get observer elevation",
+    params(
+        ("latitude" = f64, Path, description = "Observer latitude in decimal degrees."),
+        ("longitude" = f64, Path, description = "Observer longitude in decimal degrees.")
+    ),
+    responses(
+        (status = 200, description = "Elevation returned by Open-Meteo.", body = ElevationResponse),
+        (status = 400, description = "Invalid request parameters.", body = ErrorResponse),
+        (status = 502, description = "Open-Meteo request failed.", body = ErrorResponse)
+    )
+)]
+pub async fn get_elevation(
+    state: web::Data<AppState>,
+    request: HttpRequest,
+    path: web::Path<(f64, f64)>,
+) -> Result<HttpResponse, ApiError> {
+    let (latitude, longitude) = path.into_inner();
+    validate_coordinates(latitude, longitude, "latitude", "longitude", request.path())?;
+
+    let response = state
+        .open_meteo
+        .elevation(latitude, longitude)
+        .await
+        .map_err(|error| ApiError::from_open_meteo(error, request.path()))?;
+
+    Ok(HttpResponse::Ok().json(response))
 }
 
 #[utoipa::path(
@@ -318,16 +365,26 @@ pub async fn get_above(
 }
 
 fn validate_observer(lat: f64, lng: f64, path: &str) -> Result<(), ApiError> {
+    validate_coordinates(lat, lng, "observer_lat", "observer_lng", path)
+}
+
+fn validate_coordinates(
+    lat: f64,
+    lng: f64,
+    lat_field: &'static str,
+    lng_field: &'static str,
+    path: &str,
+) -> Result<(), ApiError> {
     if !(-90.0..=90.0).contains(&lat) {
         return Err(ApiError::bad_request(
-            "observer_lat must be between -90 and 90",
+            format!("{lat_field} must be between -90 and 90"),
             path,
         ));
     }
 
     if !(-180.0..=180.0).contains(&lng) {
         return Err(ApiError::bad_request(
-            "observer_lng must be between -180 and 180",
+            format!("{lng_field} must be between -180 and 180"),
             path,
         ));
     }
@@ -398,6 +455,17 @@ impl ApiError {
             status_code: StatusCode::BAD_GATEWAY,
             code: "N2YO_UPSTREAM_ERROR",
             message: "failed to fetch data from N2YO".to_owned(),
+            path: path.to_owned(),
+        }
+    }
+
+    fn from_open_meteo(error: OpenMeteoClientError, path: &str) -> Self {
+        log::warn!("Open-Meteo request failed: {error}");
+
+        Self {
+            status_code: StatusCode::BAD_GATEWAY,
+            code: "OPEN_METEO_UPSTREAM_ERROR",
+            message: "failed to fetch elevation from Open-Meteo".to_owned(),
             path: path.to_owned(),
         }
     }
