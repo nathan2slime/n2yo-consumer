@@ -161,7 +161,7 @@ The [service/Dockerfile](service/Dockerfile) builds a release binary and runs th
 
 ## GitHub Actions
 
-The workflow at `.github/workflows/actions.yml` runs formatting, clippy, tests, builds `cargo build --release -p service`, and uploads the generated `target/release/service` binary as an artifact named `service-linux-x86_64`.
+The workflow at `.github/workflows/actions.yml` runs formatting, clippy, and tests on pushes and pull requests. When a GitHub release is published, the `build-binary` job builds `cargo build --release -p service` and attaches the generated `target/release/service` binary to that release as `service-linux-x86_64`.
 
 ## Project Status
 
