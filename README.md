@@ -159,10 +159,3 @@ The current `docker-compose.yml` defines:
 
 The [service/Dockerfile](service/Dockerfile) builds a release binary and runs the final artifact in a slim Debian image.
 
-## GitHub Actions
-
-The workflow at `.github/workflows/actions.yml` runs formatting, clippy, and tests on pushes and pull requests. When a GitHub release is published, the `build-binary` job builds `cargo build --release -p service` and attaches the generated `target/release/service` binary to that release as `service-linux-x86_64`.
-
-## Project Status
-
-The repository is currently focused on a stateless satellite tracking API for aumigo.
